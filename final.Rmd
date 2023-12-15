@@ -1,0 +1,286 @@
+---
+title: "mejo570final"
+author: "Bettye Tish"
+date: "2023-12-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Data Interview
+
+```{r}
+library(dplyr)
+library(ggplot2)
+pacman::p_load(sf, tidyverse)
+setwd("/Users/bettyetish/Documents/MEJO570FA23/zefinal")
+rm(list=ls())
+
+```
+
+```{r}
+stations <- read.csv("Alternative_Fueling_Stations.csv")
+```
+
+### 1. How many alternative fueling stations are there in America?
+```{r}
+us_count <- stations %>%
+  filter(country=="US") %>%
+  count()
+
+us_count
+```
+There are 79,602 alternative fuel stations in America. 
+
+### 2. How many alternative fuel stations are in California?
+```{r}
+
+cali <- stations %>%
+  filter(state=="CA")
+
+cali_count <- count(cali)
+cali_count
+
+```
+There are 19,185 alternative fuel stations in California. 
+
+### 3. What proportion of alternative fuel stations are in California?
+```{r}
+(cali_count / us_count) * 100
+```
+24.1% of American alternative fuel stations are in California. 
+
+### 4. How many of each alternative fuel station are there in California?
+```{r}
+table(cali$fuel_type_code)
+```
+There are 47 biodiesel, 293 compressed natural gas, 373 ethanol, 17,476 electric, 98 hydrogen, 40 liquefied natural gas, 258 propane and 600 renewable diesel fuel stations in California. 
+
+### 5a. How many EV fuel stations in California are publicly accessible?
+```{r}
+cali_ev <- cali %>%
+  filter(fuel_type_code=="ELEC")
+
+access_table <- table(cali_ev$access_code)
+access <- as.data.frame(access_table)
+colnames(access) <- c("Access_Type", "Count")
+
+access_graph <- ggplot(access, aes(x = Access_Type, y = Count)) +
+  geom_col() +
+  labs(x = 'Access Type', y = 'Count', title = 'Accessibility of Californian Electric Vehicle Charging Stations')
+
+access_graph
+```
+The vast majority of California's electric vehicle charging stations are for public use (16,663 stations of the total 17,476 stations). Only 813 are for private use. 
+
+### 5b.How many public charging stations are only for employee use at that workplaces installed them?
+```{r}
+cali_ev %>%
+  summarise(count = sum(ev_workplace_charging == 1 & access_code == "public"))
+
+```
+No charging stations labeled for public use are misleadingly classified (only for employee use). 
+
+### 6. What proportion of electric vehicle charging stations in California do government entities own?
+```{r}
+cali_ev <- cali_ev %>%
+  mutate(
+    owner_type_reclass = case_when(
+      owner_type_code == "" ~ "Unspecified",
+      owner_type_code == "J" ~ "Jointly Owned",
+      owner_type_code == "P" ~ "Privately Owned",
+      owner_type_code == "U" ~ "Utility Owned",
+      owner_type_code %in% c("SG", "LG", "FG") ~ "Government Owned"
+    )
+  )
+
+owner_table <- table(cali_ev$owner_type_reclass)
+owner <- as.data.frame(owner_table)
+colnames(owner) <- c("Owner_Type", "Count")
+
+owner_graph <- ggplot(owner, aes(x = Owner_Type, y = Count)) +
+  geom_col() +
+  labs(x = 'Owner Type', y = 'Count', title = 'Ownership of Californian Electric Vehicle Charging Stations')
+
+owner_graph
+```
+The vast majority of Californian electric vehicle charging stations in California have unspecified ownership. 756 electric vehicle charging stations are owned by the local, state or federal government. 
+
+### 7. What zip code has the most electric vehicle charging stations?
+```{r}
+cali_zip_table <- table(cali_ev$zip)
+cali_zip <- as.data.frame(cali_zip_table)
+colnames(cali_zip) <- c("zip_code", "stations")
+
+cali_zip %>% 
+  arrange(desc(stations)) %>%
+  head()
+
+```
+The most electric vehicle charging stations, 391, are in the 94025 zip code.
+
+### 8. What city is the 94025 zipcode in?
+```{r}
+cali_ev %>%
+  filter(zip == 94025) %>%
+  head()
+```
+The zip code 94025 is in Menlo Park, CA. 
+
+### 9. When were most of these electric vehicle charging stations built?
+```{r}
+class(cali_ev$open_date)
+#It is a character, change to a date via lubridate. 
+
+pacman::p_load(lubridate)
+
+cali_ev <- cali_ev %>%
+  mutate(open_date = str_trim(open_date)) %>%
+  mutate(open_date = str_sub(open_date, 1, str_length(open_date) - 12))
+
+cali_ev <- cali_ev %>%
+  mutate(open_date = ymd(open_date))
+
+class(cali_ev$open_date) #It worked!
+
+summary(cali_ev$open_date)
+
+date_dist <- hist(cali_ev$open_date, breaks = "months", main = "Distribution of Californian EV Charging Station Opening Dates", xlab = "Opening Date")
+
+
+
+```
+The first Californian electric vehicle charging station was opened in August of 1995. Construction of Californian electric vehicle charging stations ramped up during the pandemic, 75% of current stations have been opened since June of 2020. Interestingly, this dataset includes charging stations that haven't opened yet: the newest charging station is forecasted to open in May of 2024. However, this could be an error in data entry. 
+
+### 10a. How many EV charging stations opened during the spikes in the histogram?
+```{r}
+cali_ev <- cali_ev %>%
+  mutate(opening_monthyear = format(open_date, "%Y-%m"))
+
+  sort(table(cali_ev$opening_monthyear), decreasing = TRUE)
+```
+The two notable spikes in the histogram of opening dates were January of 2021, where 4323 stations opened, and June of 2020, where 1885 stations opened. 
+
+### 10b. Was the spike in January 2021 attributed to the success of a certain EV charging network?
+```{r}
+cali_ev %>%
+  filter(opening_monthyear == "2021-01") %>%
+  count(ev_network)
+```
+Yes! ChargePoint Network instigated 4120 of 4323 charging stations that opened in California in January 2021.
+
+### 10c. Was the spike in June 2020 attributed to the success of a certain EV charging network?
+```{r}
+cali_ev %>%
+  filter(opening_monthyear == "2020-06") %>%
+  count(ev_network)
+```
+Yes! ChargePoint Network instigated 1817 of 1885 charging stations that opened in California in June 2020.
+
+### 11. Does ChargePoint Network have some sort of monopoly on Californian electric vehicle charging stations?
+```{r}
+cali_ev %>%
+  count(ev_network)
+```
+ChargePoint Network has spearheaded the creation of California's electric vehicle infrastructure, creating 11,260 charging stations of the state's total 17,476. 
+
+### 12. What are the accessibility implications, if any, of most EV charging stations in California belonging to ChargePoint Network?
+```{r}
+cali_ev %>%
+  filter(ev_network == "ChargePoint Network") %>%
+  count(ev_connector_types)
+```
+As dictated by ChargePoint Network conventions, 10,673 charging stations in California only offer J1772 type connectors. This only poses a problem for Tesla drivers, which do not use a J1772 connector for fast charging according to [Duke Energy](https://www.duke-energy.com/energy-education/electric-vehicles/charging-your-ev/types-of-chargers#:~:text=Fast%20Charger%20Connectors,available%20as%20an%20upgrade%20option.).
+
+### 13. How many people per charging station?
+```{r}
+#install.packages("tidycensus")
+library(tidycensus)
+census_api_key("78d2751391c259130a44d86b9927c83c4574b097", overwrite = TRUE, install= TRUE)
+
+Sys.getenv("CENSUS_API_KEY")
+ca_pop <- get_acs(
+  geography = "zcta",
+  variables = c(population = "B01003_001"),
+  survey = "acs5",  
+  year = 2021,      
+  geometry = TRUE
+)
+
+ca_pop <- ca_pop %>%
+  mutate(zip_code = str_trim(NAME)) %>%
+  mutate(zip_code = str_sub(zip_code, start = -5)) %>%
+  mutate(zip_code = str_trim(zip_code))
+
+ca_all <- left_join(cali_zip, ca_pop, by = "zip_code") %>%
+  st_as_sf()
+
+ca_all<- ca_all %>%
+  mutate(pop_per_station =  estimate / stations )
+
+calioutline <- st_read(dsn = "/Users/bettyetish/Documents/MEJO570FA23/zefinal/ca-state-boundary/CA_State_TIGER2016.shp")
+
+summary(ca_all$pop_per_station)
+
+```
+```{r}
+library(viridis)
+                       
+ggplot(ca_all, aes(fill = pop_per_station)) + 
+  geom_sf(lwd = 0.1) +   
+  xlim(c(-126, -113)) +
+  ylim(c(32, 43)) +
+  geom_sf(data = calioutline, fill = "transparent", color = "black", lwd = 0.5) +
+  theme_minimal() +
+   labs(title = "Population Per Electric Vehicle Charging Station Per Zip Code in California",
+       caption = "Source: ACS 5-year, 2021",
+       fill = "Population per Station") +
+  viridis::scale_fill_viridis(direction=-1)
+
+```
+
+The sparsely populated areas to the north and east of the state lack electric vehicle charging stations. The most strained charging stations are in the middle of California, with 15,000-96,605 people served by each charging station. Many Californian zip codes boast high access at electric vehicle charging stations, with less than 10,000 people served by each charging station. At any given ZIP code, an average of 6188 people use each charging station. 
+
+### 14. Where are the charging stations located?
+```{r}
+library(leaflet)
+
+#In total transparency, these next four lines of code were from ChatGPT because I had no idea how to change the X and Y from their projection EPSG 3857 to latitude and longitude!
+cali_ev_sf <- st_as_sf(cali_ev, coords = c("X", "Y"), crs = 3857)
+cali_ev_sf <- st_transform(cali_ev_sf, crs = 4326)
+cali_ev$Longitude <- st_coordinates(cali_ev_sf)[, 1]
+cali_ev$Latitude <- st_coordinates(cali_ev_sf)[, 2]
+
+#So I was able to create this map...
+station_map <- leaflet(cali_ev) %>% 
+  addProviderTiles(providers$Stadia.Outdoors) %>%
+  setView(-119.4494, 36, zoom = 5.4) %>%
+  addCircles(lng=~Longitude, 
+             lat=~Latitude, 
+             weight = 3, 
+             radius=40,
+             color="#006", 
+             stroke = TRUE, 
+             fillOpacity = 0.8) %>%
+  addLegend("bottomright", 
+            colors= c("#006"), 
+            labels=c("Charging Station"), 
+            title="Electric Vehicle Charging Stations in California") 
+
+station_map
+
+```
+Unsurprisingly, most California electric vehicle charging stations were in and around the highly populated coastal cities of San Francisco, Los Angeles and San Diego. Large swaths of the state, mainly to the east, lacked electric vehicle charging stations. 
+
+### Summary of Findings
+Amid growing global concern over climate change, California has made legislative strides to become a state leader in the transition to renewable energy.  In August 2022, the [California Air Resources Board](https://ww2.arb.ca.gov/news/california-moves-accelerate-100-new-zero-emission-vehicle-sales-2035) mandated that by 2035, all cars and light trucks sold in the state will be zero-emission vehicles. This policy, the Advanced Clean Cars II rule, is one of California’s most ambitious climate goals; it could add as many as 12 million more electric vehicles (EVs) to Californian roads, according to [NPR](https://www.npr.org/2023/01/30/1152627751/new-cars-in-california-must-be-zero-emissions-by-2035-can-the-power-grid-handle-) . Achieving this rapid electrification of California’s transportation sector will require a robust,  public,  electric vehicle charging infrastructure. 
+
+The U.S. Department of Transportation (DOT)  reports that there are 19,185 alternative fuel stations in California, representing 24.1% of the alternative fuel stations in the country. Alternative fuel stations across California offer a variety of fuels: biodiesel, compressed natural gas, ethanol, electric, hydrogen, liquefied natural gas, propane and renewable diesel. However, the vast majority of these fuel stations, 17,476 stations, are electric charging stations. Only 813 of these stations have been designated for private use, the rest are accessible to the public. This high rate of public access  is likely due to relatively few Californian EV charging stations being privately owned: 2,395. However, it should be acknowledged that the DOT lacked ownership information for the majority of stations. 
+
+The EV charging infrastructure in California emerged in 1995, but has been rapidly fortified in recent years. Three-quarters of current charging stations have been built since June 2020, likely attributed to the growing popularity and affordability of EVs. Construction efforts have been dominated by the ChargePoint Network, which opened 4,120 stations in January 2021 alone.  More than half of the state’s EV charging stations belong to the ChargePoint Network. This means that the network’s preferred J1772 type connector equipment is the most abundant across the state and  exclusively used at 10,673 charging stations. Although the J1772 type connector is used by all other EV models for fast charging, it is not compatible with the [EV market leader](https://www.cnbc.com/2023/07/07/ev-sales-hyundai-overtakes-gm-but-teslas-us-dominance-continues.html#:~:text=Tesla%2C%20led%20by%20CEO%20Elon,to%20data%20from%20Motor%20Intelligence.) Tesla. Tesla owners must invest in a J1772 adapter to be able to use most Californian public charging stations. 
+
+Most EV charging stations are in California’s coastal population hubs, such as Los Angeles, San Francisco and San Diego. At many ZIP codes within these metropolitan areas, less than  10,000 people are served by each charging station. An average of 6,188 people per zip code are served by each charging station. The single Californian  ZIP code with the most EV charging stations is 94025, which is in the [Bay-area technology hub](https://menlopark.gov/Community/City-profile#:~:text=Known%20worldwide%20as%20the%20“Capital,originating%20from%20the%20Silicon%20Valley.)  of Menlo Park. However, many less densely populated  areas of California lack EV charging station access, particularly in the north and east of the state. The successful implementation of the Advanced Clean Cars II rule would require the addition of many more public charging stations, particularly in these underserved areas. 
+
+
